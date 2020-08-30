@@ -10,7 +10,7 @@
   },
   "name": "erc3000-proposal",
   "version": "1.0.0",
-  "description": "The ERC3000 Proposal",
+  "description": "The RewardCalc Proposal",
   "main": "index.js",
   "dependencies": {
     "@types/chai": "^4.2.12",
