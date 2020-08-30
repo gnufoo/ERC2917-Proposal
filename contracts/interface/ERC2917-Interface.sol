@@ -2,11 +2,11 @@
 pragma solidity >=0.6.6;
 import '../interface/IERC20.sol';
 
-interface IRewardCalcToken is IERC20 {
+interface IERC2917 is IERC20 {
 
     /// @dev This emit when interests amount per block is changed by the owner of the contract.
     /// It emits with the old interests amount and the new interests amount.
-    event InterestsPerBlockChanged (uint oldValue, uint newValue);
+    event InterestRatePerBlockChanged (uint oldValue, uint newValue);
 
     /// @dev This emit when a users' productivity has changed
     /// It emits with the user's address and the the value after the change.
@@ -16,15 +16,14 @@ interface IRewardCalcToken is IERC20 {
     /// It emits with the user's address and the the value after the change.
     event ProductivityDecreased (address indexed user, uint value);
 
-    
     /// @dev Return the current contract's interests rate per block.
     /// @return The amount of interests currently producing per each block.
     function interestsPerBlock() external view returns (uint);
 
     /// @notice Change the current contract's interests rate.
     /// @dev Note the best practice will be restrict the gross product provider's contract address to call this.
-    /// @return The true/fase to notice that the value has successfully changed or not, when it succeed, it will emite the InterestsPerBlockChanged event.
-    function changeInterestsPerBlock(uint value) external returns (bool);
+    /// @return The true/fase to notice that the value has successfully changed or not, when it succeed, it will emite the InterestRatePerBlockChanged event.
+    function changeInterestRatePerBlock(uint value) external returns (bool);
 
     /// @notice It will get the productivity of given user.
     /// @dev it will return 0 if user has no productivity proved in the contract.

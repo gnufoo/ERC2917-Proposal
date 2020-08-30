@@ -1,12 +1,12 @@
 //SPDX-License-Identifier: MIT
 pragma solidity >=0.6.6;
 
-import './interface/RewardCalc-Token-Interface.sol';
+import './interface/ERC2917-Token-Interface.sol';
 import './libraries/Upgradable.sol';
 import './libraries/SafeMath.sol';
 
 /*
-    The Objective of RewardCalc Demo is to implement a decentralized staking mechanism, which calculates users' share
+    The Objective of ERC2917 Demo is to implement a decentralized staking mechanism, which calculates users' share
     by accumulating productiviy * time. And calculates users revenue from anytime t0 to t1 by the formula below:
 
         user_accumulated_productivity(time1) - user_accumulated_productivity(time0)
@@ -14,7 +14,7 @@ import './libraries/SafeMath.sol';
        total_accumulated_productivity(time1) - total_accumulated_productivity(time0)
 
 */
-contract RewardCalcImpl is IRewardCalcToken, UpgradableProduct, UpgradableGovernance {
+contract ERC2917Impl is IERC2917Token, UpgradableProduct, UpgradableGovernance {
     using SafeMath for uint;
 
     uint public mintCumulation;

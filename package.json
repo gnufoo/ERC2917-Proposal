@@ -8,9 +8,9 @@
     "ts-node": "^9.0.0",
     "typescript": "^4.0.2"
   },
-  "name": "erc3000-proposal",
+  "name": "ERC2917-proposal",
   "version": "1.0.0",
-  "description": "The RewardCalc Proposal",
+  "description": "The ERC2917 Proposal",
   "main": "index.js",
   "dependencies": {
     "@types/chai": "^4.2.12",
