@@ -1,12 +1,12 @@
 //SPDX-License-Identifier: MIT
 pragma solidity >=0.6.6;
 
-import './interface/ERC3000-Token-Interface.sol';
+import './interface/ERC2917-Token-Interface.sol';
 import './libraries/Upgradable.sol';
 import './libraries/SafeMath.sol';
 
 /*
-    The Objective of ERC3000 Demo is to implement a decentralized staking mechanism, which calculates users' share
+    The Objective of ERC2917 Demo is to implement a decentralized staking mechanism, which calculates users' share
     by accumulating productiviy * time. And calculates users revenue from anytime t0 to t1 by the formula below:
 
         user_accumulated_productivity(time1) - user_accumulated_productivity(time0)
@@ -14,7 +14,7 @@ import './libraries/SafeMath.sol';
        total_accumulated_productivity(time1) - total_accumulated_productivity(time0)
 
 */
-contract ERC3000Impl is IERC3000Token, UpgradableProduct, UpgradableGovernance {
+contract ERC2917Impl is IERC2917, UpgradableProduct, UpgradableGovernance {
     using SafeMath for uint;
 
     uint public mintCumulation;
@@ -31,7 +31,7 @@ contract ERC3000Impl is IERC3000Token, UpgradableProduct, UpgradableGovernance {
         uint product;           // user's productivity
         uint total;             // total productivity
         uint block;             // record's block number
-        uint user;              // accumulated products
+        uint accProduct;              // accumulated products
         uint global;            // global accumulated products
         uint gross;             // global gross products
     }
@@ -130,7 +130,7 @@ contract ERC3000Impl is IERC3000Token, UpgradableProduct, UpgradableGovernance {
     // This function adjust how many token will be produced by each block, eg:
     // changeAmountPerBlock(100)
     // will set the produce rate to 100/block.
-    function changeInterestsPerBlock(uint value) external override requireGovernor returns (bool) {
+    function changeInterestRatePerBlock(uint value) external override requireGovernor returns (bool) {
         uint old = grossProduct.amount;
         require(value != old, 'AMOUNT_PER_BLOCK_NO_CHANGE');
 
@@ -140,7 +140,7 @@ contract ERC3000Impl is IERC3000Token, UpgradableProduct, UpgradableGovernance {
         grossProduct.amount         = value;
         require(grossProduct.total <= uint(-1), 'BLOCK_PRODUCT_OVERFLOW');
 
-        emit InterestsPerBlockChanged(old, value);
+        emit InterestRatePerBlockChanged(old, value);
         return true;
     }
 
@@ -184,7 +184,7 @@ contract ERC3000Impl is IERC3000Token, UpgradableProduct, UpgradableGovernance {
         require(amount > 0, 'NO_PRODUCTIVITY');
         Productivity storage product = users[msg.sender];
         product.gross   = gp;
-        product.user    = userProduct;
+        product.accProduct    = userProduct;
         product.global  = globalProduct;
 
         balanceOf[msg.sender]   = balanceOf[msg.sender].add(amount);
@@ -204,11 +204,11 @@ contract ERC3000Impl is IERC3000Token, UpgradableProduct, UpgradableGovernance {
         globalProduct   = global.product.add(_computeProductivity(global));
 
         uint deltaBlockProduct  = gp.sub(product.gross);
-        uint numerator          = userProduct.sub(product.user);
+        uint numerator          = userProduct.sub(product.accProduct);
         uint denominator        = globalProduct.sub(product.global);
 
         if (denominator > 0) {
-            amount = deltaBlockProduct.mul(numerator) / denominator;
+            amount = deltaBlockProduct.mul(numerator).div(denominator);
         }
     }
 

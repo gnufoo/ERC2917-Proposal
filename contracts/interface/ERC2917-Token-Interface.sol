@@ -2,7 +2,7 @@
 pragma solidity >=0.6.6;
 import '../interface/IERC20.sol';
 
-interface IERC3000Token is IERC20 {
+interface IERC2917Token is IERC20 {
 
     /// @dev This emit when interests amount per block is changed by the owner of the contract.
     /// It emits with the old interests amount and the new interests amount.
