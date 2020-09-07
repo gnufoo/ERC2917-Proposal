@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: MIT
 pragma solidity >=0.6.6;
 
-import './interface/ERC2917-Token-Interface.sol';
+import './interface/ERC2917-Interface.sol';
 import './libraries/Upgradable.sol';
 import './libraries/SafeMath.sol';
 
@@ -19,27 +19,8 @@ contract ERC2917Impl is IERC2917, UpgradableProduct, UpgradableGovernance {
 
     uint public mintCumulation;
 
-    struct Production {
-        uint amount;            // how many tokens could be produced on block basis
-        uint total;             // total produced tokens
-        uint block;             // last updated block number
-    }
-
-    Production internal grossProduct = Production(0, 0, 0);
-
-    struct Productivity {
-        uint product;           // user's productivity
-        uint total;             // total productivity
-        uint block;             // record's block number
-        uint accProduct;              // accumulated products
-        uint global;            // global accumulated products
-        uint gross;             // global gross products
-    }
-
-    Productivity public global;
-    mapping(address => Productivity) public users;
-
     uint private unlocked = 1;
+    uint public wasabiPerBlock;
 
     modifier lock() {
         require(unlocked == 1, 'Locked');
@@ -48,11 +29,25 @@ contract ERC2917Impl is IERC2917, UpgradableProduct, UpgradableGovernance {
         unlocked = 1;
     }
 
+    uint public nounce;
+
+    function incNounce() public {
+        nounce ++;
+    }
+
+    struct UserInfo {
+        uint amount;     // How many LP tokens the user has provided.
+        uint rewardDebt; // Reward debt. 
+    }
+
+    mapping(address => UserInfo) public users;
+
     // implementation of ERC20 interfaces.
     string override public name;
     string override public symbol;
     uint8 override public decimals = 18;
     uint override public totalSupply;
+
     mapping(address => uint) override public balanceOf;
     mapping(address => mapping(address => uint)) override public allowance;
 
@@ -87,43 +82,12 @@ contract ERC2917Impl is IERC2917, UpgradableProduct, UpgradableGovernance {
     // end of implementation of ERC20
 
     // creation of the interests token.
-    constructor(string memory _name, string memory _symbol, uint8 _decimals, uint8 _interestsRate) UpgradableProduct() UpgradableGovernance() public {
+    constructor(string memory _name, string memory _symbol, uint8 _decimals, uint _interestsRate) UpgradableProduct() UpgradableGovernance() public {
         name        = _name;
         symbol      = _symbol;
         decimals    = _decimals;
-        grossProduct.amount = _interestsRate * (uint(10) ** _decimals);
-        grossProduct.block  = block.number;
-    }
 
-    // When calling _computeBlockProduct() it calculates the area of productivity * time since last time and accumulate it.
-    function _computeBlockProduct() private view returns (uint) {
-        uint elapsed = block.number.sub(grossProduct.block);
-        return grossProduct.amount.mul(elapsed);
-    }
-
-    // compute productivity returns total productivity of a user.
-    function _computeProductivity(Productivity memory user) private view returns (uint) {
-        uint blocks = block.number.sub(user.block);
-        return user.total.mul(blocks);
-    }
-
-    // update users' productivity by value with boolean value indicating increase  or decrease.
-    function _updateProductivity(Productivity storage user, uint value, bool increase) private {
-        user.product      = user.product.add(_computeProductivity(user));
-        global.product    = global.product.add(_computeProductivity(global));
-
-        require(global.product <= uint(-1), 'GLOBAL_PRODUCT_OVERFLOW');
-
-        user.block      = block.number;
-        global.block    = block.number;
-        if(increase) {
-            user.total   = user.total.add(value);
-            global.total = global.total.add(value);
-        }
-        else {
-            user.total   = user.total.sub(value);
-            global.total = global.total.sub(value);
-        }
+        wasabiPerBlock = _interestsRate;
     }
 
     // External function call
@@ -131,17 +95,37 @@ contract ERC2917Impl is IERC2917, UpgradableProduct, UpgradableGovernance {
     // changeAmountPerBlock(100)
     // will set the produce rate to 100/block.
     function changeInterestRatePerBlock(uint value) external override requireGovernor returns (bool) {
-        uint old = grossProduct.amount;
+        uint old = wasabiPerBlock;
         require(value != old, 'AMOUNT_PER_BLOCK_NO_CHANGE');
 
-        uint product                = _computeBlockProduct();
-        grossProduct.total          = grossProduct.total.add(product);
-        grossProduct.block          = block.number;
-        grossProduct.amount         = value;
-        require(grossProduct.total <= uint(-1), 'BLOCK_PRODUCT_OVERFLOW');
+        wasabiPerBlock = value;
 
         emit InterestRatePerBlockChanged(old, value);
         return true;
+    }
+
+    uint lastRewardBlock;
+    uint totalProductivity;
+    uint accAmountPerShare;
+
+        // Update reward variables of the given pool to be up-to-date.
+    function update() internal 
+    {
+        if (block.number <= lastRewardBlock) {
+            return;
+        }
+
+        if (totalProductivity == 0) {
+            lastRewardBlock = block.number;
+            return;
+        }
+        uint256 multiplier = block.number.sub(lastRewardBlock);
+        uint256 reward = multiplier.mul(wasabiPerBlock);
+        balanceOf[address(this)] = balanceOf[address(this)].add(reward);
+        totalSupply = totalSupply.add(reward);
+
+        accAmountPerShare = accAmountPerShare.add(reward.mul(1e12).div(totalProductivity));
+        lastRewardBlock = block.number;
     }
 
     // External function call
@@ -150,14 +134,19 @@ contract ERC2917Impl is IERC2917, UpgradableProduct, UpgradableGovernance {
     // Formula:     user_productivity / global_productivity
     function increaseProductivity(address user, uint value) external override requireImpl returns (bool) {
         require(value > 0, 'PRODUCTIVITY_VALUE_MUST_BE_GREATER_THAN_ZERO');
-        Productivity storage product        = users[user];
 
-        if (product.block == 0) {
-            product.gross = grossProduct.total.add(_computeBlockProduct());
-            product.global = global.product.add(_computeProductivity(global));
+        UserInfo storage userInfo = users[user];
+        update();
+        if (userInfo.amount > 0) {
+            uint pending = userInfo.amount.mul(accAmountPerShare).div(1e12).sub(userInfo.rewardDebt);
+            _transfer(address(this), user, pending);
+            mintCumulation = mintCumulation.add(pending);
         }
-        
-        _updateProductivity(product, value, true);
+
+        totalProductivity = totalProductivity.add(value);
+
+        userInfo.amount = userInfo.amount.add(value);
+        userInfo.rewardDebt = userInfo.amount.mul(accAmountPerShare).div(1e12);
         emit ProductivityIncreased(user, value);
         return true;
     }
@@ -166,13 +155,57 @@ contract ERC2917Impl is IERC2917, UpgradableProduct, UpgradableGovernance {
     // This function will decreases user's productivity by value, and updates the global productivity
     // it will record which block this is happenning and accumulates the area of (productivity * time)
     function decreaseProductivity(address user, uint value) external override requireImpl returns (bool) {
-        Productivity storage product = users[user];
-
-        require(value > 0 && product.total >= value, 'INSUFFICIENT_PRODUCTIVITY');
+        require(value > 0, 'INSUFFICIENT_PRODUCTIVITY');
         
-        _updateProductivity(product, value, false);
+        UserInfo storage userInfo = users[user];
+        require(userInfo.amount >= value, "WASABI: FORBIDDEN");
+        update();
+        uint pending = userInfo.amount.mul(accAmountPerShare).div(1e12).sub(userInfo.rewardDebt);
+        _transfer(address(this), user, pending);
+        mintCumulation = mintCumulation.add(pending);
+        userInfo.amount = userInfo.amount.sub(value);
+        userInfo.rewardDebt = userInfo.amount.mul(accAmountPerShare).div(1e12);
+        totalProductivity = totalProductivity.sub(value);
+
         emit ProductivityDecreased(user, value);
         return true;
+    }
+
+    function take() external override view returns (uint) {
+        UserInfo storage userInfo = users[msg.sender];
+        uint _accAmountPerShare = accAmountPerShare;
+        // uint256 lpSupply = totalProductivity;
+        if (block.number > lastRewardBlock && totalProductivity != 0) {
+            uint multiplier = block.number.sub(lastRewardBlock);
+            uint reward = multiplier.mul(wasabiPerBlock);
+            _accAmountPerShare = _accAmountPerShare.add(reward.mul(1e12).div(totalProductivity));
+        }
+        return userInfo.amount.mul(_accAmountPerShare).div(1e12).sub(userInfo.rewardDebt);
+    }
+
+    function takeWithAddress(address user) external view returns (uint) {
+        UserInfo storage userInfo = users[user];
+        uint _accAmountPerShare = accAmountPerShare;
+        // uint256 lpSupply = totalProductivity;
+        if (block.number > lastRewardBlock && totalProductivity != 0) {
+            uint multiplier = block.number.sub(lastRewardBlock);
+            uint reward = multiplier.mul(wasabiPerBlock);
+            _accAmountPerShare = _accAmountPerShare.add(reward.mul(1e12).div(totalProductivity));
+        }
+        return userInfo.amount.mul(_accAmountPerShare).div(1e12).sub(userInfo.rewardDebt);
+    }
+
+    // Returns how much a user could earn plus the giving block number.
+    function takeWithBlock() external override view returns (uint, uint) {
+        UserInfo storage userInfo = users[msg.sender];
+        uint _accAmountPerShare = accAmountPerShare;
+        // uint256 lpSupply = totalProductivity;
+        if (block.number > lastRewardBlock && totalProductivity != 0) {
+            uint multiplier = block.number.sub(lastRewardBlock);
+            uint reward = multiplier.mul(wasabiPerBlock);
+            _accAmountPerShare = _accAmountPerShare.add(reward.mul(1e12).div(totalProductivity));
+        }
+        return (userInfo.amount.mul(_accAmountPerShare).div(1e12).sub(userInfo.rewardDebt), block.number);
     }
 
 
@@ -180,57 +213,16 @@ contract ERC2917Impl is IERC2917, UpgradableProduct, UpgradableGovernance {
     // When user calls this function, it will calculate how many token will mint to user from his productivity * time
     // Also it calculates global token supply from last time the user mint to this time.
     function mint() external override lock returns (uint) {
-        (uint gp, uint userProduct, uint globalProduct, uint amount) = _computeUserProduct();
-        require(amount > 0, 'NO_PRODUCTIVITY');
-        Productivity storage product = users[msg.sender];
-        product.gross   = gp;
-        product.accProduct    = userProduct;
-        product.global  = globalProduct;
-
-        balanceOf[msg.sender]   = balanceOf[msg.sender].add(amount);
-        totalSupply             = totalSupply.add(amount);
-        mintCumulation          = mintCumulation.add(amount);
-
-        emit Transfer(address(0), msg.sender, amount);
-        return amount;
-    }
-
-    // Returns how many token he will be able to mint.
-    function _computeUserProduct() private view returns (uint gp, uint userProduct, uint globalProduct, uint amount) {
-        Productivity memory product    = users[msg.sender];
-
-        gp              = grossProduct.total.add(_computeBlockProduct());
-        userProduct     = product.product.add(_computeProductivity(product));
-        globalProduct   = global.product.add(_computeProductivity(global));
-
-        uint deltaBlockProduct  = gp.sub(product.gross);
-        uint numerator          = userProduct.sub(product.accProduct);
-        uint denominator        = globalProduct.sub(product.global);
-
-        if (denominator > 0) {
-            amount = deltaBlockProduct.mul(numerator).div(denominator);
-        }
+        return 0;
     }
 
     // Returns how many productivity a user has and global has.
     function getProductivity(address user) external override view returns (uint, uint) {
-        return (users[user].total, global.total);
+        return (users[user].amount, totalProductivity);
     }
 
     // Returns the current gorss product rate.
     function interestsPerBlock() external override view returns (uint) {
-        return grossProduct.amount;
-    }
-
-    // Returns how much a user could earn.
-    function take() external override view returns (uint) {
-        (, , , uint amount) = _computeUserProduct();
-        return amount;
-    }
-
-    // Returns how much a user could earn plus the giving block number.
-    function takeWithBlock() external override view returns (uint, uint) {
-        (, , , uint amount) = _computeUserProduct();
-        return (amount, block.number);
+        return accAmountPerShare;
     }
 }
